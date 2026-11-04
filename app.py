@@ -2,6 +2,8 @@
 import os, base64, json, requests
 import streamlit as st
 from openai import OpenAI
+import smtplib
+from email.mime.text import MIMEText
 
 # OpenAI 클라이언트 생성
 client = OpenAI()
@@ -230,8 +232,9 @@ with st.sidebar:
     ):
         st.session_state.messages = []
         st.session_state.email_pending = None
-        st.rerun()
         st.session_state.meeting_text = ""
+        st.rerun()
+    
 
 # 이메일 발송 최종 확인
 if st.session_state.email_pending is not None:
