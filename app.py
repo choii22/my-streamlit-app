@@ -4,6 +4,7 @@ import streamlit as st
 from openai import OpenAI
 import smtplib
 from email.mime.text import MIMEText
+import re
 
 # OpenAI 클라이언트 생성
 client = OpenAI()
@@ -26,6 +27,31 @@ def load_gmail_config():
 
                 if key in ["GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"]:
                     os.environ[key] = value
+
+# 수신자 이메일 주소가 실제 대화에서 제공되었는지 확인
+def check_email_address(email, messages):
+
+    # 이메일 주소가 비어 있으면 거부
+    if not email:
+        return False
+
+    # 사용자가 직접 말한 내용만 확인
+    user_text = " ".join(
+        str(msg["content"])
+        for msg in messages
+        if msg["role"] == "user"
+    )
+
+    # 사용자가 제공한 이메일 주소 추출
+    email_list = re.findall(
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        user_text
+    )
+
+    # GPT가 생성한 주소가 사용자 제공 주소와 일치하는지 확인
+    return email.strip().lower() in [
+        a.lower() for a in email_list
+    ]
 
 # 이메일 발송 함수
 def send_email(to, subject, body):
@@ -182,6 +208,13 @@ sys_role = """
 - 답변은 간결하고 명확하게 작성합니다.
 - 확인되지 않은 정보는 임의로 만들어내지 않습니다.
 - 이메일은 사용자의 최종 확인을 받은 후 발송합니다.
+
+이메일 발송 규칙:
+- 사용자가 수신자 이메일 주소를 알려주지 않았다면 이메일 주소를 임의로 생성하지 않습니다.
+- 수신자 이메일 주소가 없다면 반드시 "김대리님, 발송할 이메일 주소를 알려주세요."라고 질문합니다.
+- 사용자가 이메일 주소를 알려주면 이전 대화 내용을 참고하여 이메일 초안을 작성합니다.
+- 수신자 이메일 주소가 확인되기 전에는 send_email 도구를 호출하지 않습니다.
+- 이메일은 반드시 사용자의 최종 확인을 받은 후 발송합니다.
 """
 
 # GPT가 사용할 외부 도구 정의
@@ -323,6 +356,23 @@ if submit:
 
     if tool_calls:
         args = json.loads(tool_calls[0].arguments)
+
+    # 현재 음성 요청도 검사 대상에 포함
+    user_messages = st.session_state.messages + [
+        {"role": "user", "content": transcript.text}
+    ]
+
+    if not check_email_address(args.get("to"), user_messages):
+        st.session_state.messages.append({
+            "role": "user",
+            "content": transcript.text
+        })
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "김대리님, 발송할 이메일 주소를 알려주세요."
+        })
+        st.session_state.email_pending = None
+        st.rerun()
 
         st.session_state.email_pending = args
 
@@ -494,11 +544,23 @@ if user_text:
             and item.name == "send_email"
         ]
 
-        if tool_calls:
+if tool_calls:
 
-            # 이메일 내용 저장
-            args = json.loads(tool_calls[0].arguments)
-            st.session_state.email_pending = args
+       # 이메일 내용 저장
+        args = json.loads(tool_calls[0].arguments)
+
+       if check_email_address(args.get("to"), st.session_state.messages):
+           st.session_state.email_pending = args
+
+            answer = (
+               "김대리님, 이메일 발송 요청을 준비했습니다. "
+               "수신자와 내용을 확인한 후 발송 버튼을 눌러주세요."
+           )
+
+        else:
+            st.session_state.email_pending = None
+
+            answer = "김대리님, 발송할 이메일 주소를 알려주세요."
 
             answer = (
                 "김대리님, 이메일 발송 요청을 준비했습니다. "
