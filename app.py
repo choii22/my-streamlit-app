@@ -184,7 +184,7 @@ if "messages" not in st.session_state:
 # 사이드바 구성
 with st.sidebar:
 
-    st.title("🤖 ABLE")
+    st.title("🤖 AIVLE")
     st.caption("Personal AI Assistant")
 
     st.divider()
@@ -213,7 +213,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.caption("ABLE AI Assistant · Powered by OpenAI")
+    st.caption("AIVLE AI Assistant · Powered by OpenAI")
 
 # 지시 영역
 with st.form("task_form"):
@@ -382,4 +382,79 @@ for msg in st.session_state.messages[-20:]:
 # 대화 히스토리 초기화
 if st.button("🗑️ 대화 기록 초기화"):
     st.session_state.messages = []
+    st.rerun()
+
+# AIVLE 텍스트 채팅 기능
+
+st.divider()
+
+# 텍스트 입력창
+user_text = st.chat_input(
+    "김대리님, 무엇을 도와드릴까요?"
+)
+
+# 사용자가 메시지를 입력했을 때
+if user_text:
+
+    # 사용자 질문 저장
+    st.session_state.messages.append({
+        "role": "user",
+        "content": user_text
+    })
+
+    # 최근 대화 기록 가져오기
+    history = st.session_state.messages[-20:]
+
+    # 시스템 역할과 대화 기록 결합
+    input_messages = [
+        {
+            "role": "system",
+            "content": sys_role
+        }
+    ] + history
+
+    with st.spinner("에이블이 답변을 준비하고 있습니다..."):
+
+        # GPT 호출 (이메일 도구 포함)
+        response = client.responses.create(
+            model="gpt-4o-mini",
+            input=input_messages,
+            tools=tools,
+            tool_choice="auto"
+        )
+
+        # 이메일 발송 도구 호출 확인
+        tool_calls = [
+            item for item in response.output
+            if item.type == "function_call"
+            and item.name == "send_email"
+        ]
+
+        if tool_calls:
+
+            # 이메일 내용 저장
+            args = json.loads(tool_calls[0].arguments)
+            st.session_state.email_pending = args
+
+            answer = (
+                "김대리님, 이메일 발송 요청을 준비했습니다. "
+                "수신자와 내용을 확인한 후 발송 버튼을 눌러주세요."
+            )
+
+        else:
+            # 일반 질문에 대한 AI 답변
+            answer = response.output_text
+
+        # AI 답변 저장
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        # 최근 10개 대화만 유지
+        st.session_state.messages = (
+            st.session_state.messages[-20:]
+        )
+
+    # 새 대화 기록과 이메일 확인 화면 갱신
     st.rerun()
