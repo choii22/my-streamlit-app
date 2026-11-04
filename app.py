@@ -27,8 +27,8 @@ def load_gmail_config():
 
 # 이메일 발송 함수
 def send_email(to, subject, body):
-    sender = os.getenv("GMAIL_ADDRESS")
-    password = os.getenv("GMAIL_APP_PASSWORD")
+    sender = st.secrets["GMAIL_ADDRESS"]
+    password = st.secrets["GMAIL_APP_PASSWORD"]
 
     if not sender or not password:
         return {"status": "failed", "error": "Gmail 계정 설정이 없습니다."}
@@ -181,6 +181,13 @@ tools = [{
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# 회의록 저장 공간 초기화
+if "meeting_text" not in st.session_state:
+    st.session_state.meeting_text = ""
+
+if "email_pending" not in st.session_state:
+    st.session_state.email_pending = None
+
 # 사이드바 구성
 with st.sidebar:
 
@@ -215,6 +222,53 @@ with st.sidebar:
 
     st.caption("AIVLE AI Assistant · Powered by OpenAI")
 
+    st.divider()
+
+    if st.button(
+        "🗑️ 대화 기록 초기화",
+        use_container_width=True
+    ):
+        st.session_state.messages = []
+        st.session_state.email_pending = None
+        st.rerun()
+        st.session_state.meeting_text = ""
+
+# 이메일 발송 최종 확인
+if st.session_state.email_pending is not None:
+
+    email = st.session_state.email_pending
+
+    st.subheader("✉️ 이메일 최종 확인")
+
+    st.write("**받는 사람:**", email["to"])
+    st.write("**제목:**", email["subject"])
+    st.write("**내용:**")
+    st.info(email["body"])
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "📨 최종 발송하기",
+            type="primary",
+            use_container_width=True
+        ):
+            result = send_email(**email)
+
+            if result["status"] == "success":
+                st.session_state.email_pending = None
+                st.success("이메일이 발송되었습니다.")
+            else:
+                st.error(result["error"])
+
+    with col2:
+        if st.button(
+            "발송 취소",
+            use_container_width=True
+        ):
+            st.session_state.email_pending = None
+            st.rerun()
+
 # 지시 영역
 with st.form("task_form"):
     uploaded_file = st.file_uploader("텍스트 파일 업로드", type=["txt"])
@@ -231,6 +285,9 @@ if submit:
     text = ""
     if uploaded_file is not None:
         text = uploaded_file.read().decode("utf-8")
+
+        # 회의록 내용을 세션에 저장
+        st.session_state.meeting_text = text
 
     # 녹음이 없으면 녹음 요청
     if audio_value is None:
@@ -295,7 +352,7 @@ if submit:
             "content": "이메일 발송 확인이 필요합니다."
         })
 
-        st.stop()
+        st.rerun()
 
     # LLM 호출 및 응답 듣기
     with st.spinner("답변을 준비하고 있습니다..."):
@@ -342,29 +399,6 @@ if submit:
         # 최근 10개 대화만 유지
         st.session_state.messages = st.session_state.messages[-20:]
 
-# 이메일 발송 최종 확인
-if st.session_state.get("email_pending"):
-
-    email = st.session_state.email_pending
-
-    st.subheader("이메일 최종 확인")
-    st.write("받는 사람:", email["to"])
-    st.write("제목:", email["subject"])
-    st.write("내용:", email["body"])
-
-    if st.button("이메일 발송"):
-        result = send_email(**email)
-
-        if result["status"] == "success":
-            st.success("이메일이 발송되었습니다.")
-            st.session_state.email_pending = None
-        else:
-            st.error(result["error"])
-
-    if st.button("발송 취소"):
-        st.session_state.email_pending = None
-        st.rerun()
-
 # 대화 히스토리 표시
 st.divider()
 st.subheader("💬 최근 대화 히스토리")
@@ -380,9 +414,9 @@ for msg in st.session_state.messages[-20:]:
             st.write(msg["content"])
 
 # 대화 히스토리 초기화
-if st.button("🗑️ 대화 기록 초기화"):
-    st.session_state.messages = []
-    st.rerun()
+#if st.button("🗑️ 대화 기록 초기화"):
+ #   st.session_state.messages = []
+  #  st.rerun()
 
 # AIVLE 텍스트 채팅 기능
 
@@ -406,10 +440,21 @@ if user_text:
     history = st.session_state.messages[-20:]
 
     # 시스템 역할과 대화 기록 결합
+    # 시스템 역할 설정
+    system_content = sys_role
+
+    # 저장된 회의록이 있다면 함께 전달
+    if st.session_state.meeting_text:
+        system_content += (
+           "\n\n다음 회의록을 참고하여 답변하세요:\n"
+           + st.session_state.meeting_text
+    )
+
+    # 시스템 역할과 대화 기록 결합
     input_messages = [
         {
             "role": "system",
-            "content": sys_role
+            "content": system_content
         }
     ] + history
 
