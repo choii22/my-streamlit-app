@@ -544,28 +544,24 @@ if user_text:
             and item.name == "send_email"
         ]
 
-if tool_calls:
+        if tool_calls:
 
-       # 이메일 내용 저장
-        args = json.loads(tool_calls[0].arguments)
+            # 이메일 내용 저장
+            args = json.loads(tool_calls[0].arguments)
 
-       if check_email_address(args.get("to"), st.session_state.messages):
-           st.session_state.email_pending = args
+            # 이메일 주소 검사
+            if check_email_address(args.get("to"), st.session_state.messages):
 
-            answer = (
-               "김대리님, 이메일 발송 요청을 준비했습니다. "
-               "수신자와 내용을 확인한 후 발송 버튼을 눌러주세요."
-           )
+                st.session_state.email_pending = args
 
-        else:
-            st.session_state.email_pending = None
+                answer = (
+                    "김대리님, 이메일 발송 요청을 준비했습니다. "
+                    "수신자와 내용을 확인한 후 발송 버튼을 눌러주세요."
+                )
 
-            answer = "김대리님, 발송할 이메일 주소를 알려주세요."
-
-            answer = (
-                "김대리님, 이메일 발송 요청을 준비했습니다. "
-                "수신자와 내용을 확인한 후 발송 버튼을 눌러주세요."
-            )
+            else:
+                st.session_state.email_pending = None
+                answer = "김대리님, 발송할 이메일 주소를 알려주세요."
 
         else:
             # 일반 질문에 대한 AI 답변
