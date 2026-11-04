@@ -6,26 +6,224 @@ from openai import OpenAI
 # OpenAI 클라이언트 생성
 client = OpenAI()
 
+# 구글 드라이브에 저장된 Gmail 계정 정보 불러오기
+def load_gmail_config():
+
+    # 기존 코드에서 사용하던 구글 드라이브 폴더 경로
+    file_path = path + "api_key.txt"
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+
+            if "=" in line:
+                key, value = line.split("=", 1)
+
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+
+                if key in ["GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"]:
+                    os.environ[key] = value
+
+# 이메일 발송 함수
+def send_email(to, subject, body):
+    sender = os.getenv("GMAIL_ADDRESS")
+    password = os.getenv("GMAIL_APP_PASSWORD")
+
+    if not sender or not password:
+        return {"status": "failed", "error": "Gmail 계정 설정이 없습니다."}
+
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = to
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as s:
+            s.starttls()
+            s.login(sender, password)
+            s.sendmail(sender, to, msg.as_string())
+
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+
 # 페이지 설정
-st.set_page_config(page_title="음성 AI 서비스", page_icon="🤖", layout="wide")
-st.title("음성 인식 AI 서비스")
+# 페이지 설정
+st.set_page_config(
+    page_title="에이블 | AI 개인비서",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Streamlit 화면 디자인
+st.markdown("""
+<style>
+    /* 전체 화면 */
+    .stApp {
+        background-color: #F7F9FC;
+        color: #1F2937;
+    }
+
+    /* 메인 콘텐츠 영역 */
+    .block-container {
+        max-width: 1100px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+
+    /* 제목 */
+    h1, h2, h3 {
+        color: #172B4D;
+        font-weight: 700;
+    }
+
+    /* 사이드바 */
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        border-right: 1px solid #E5EAF1;
+    }
+
+    /* 버튼 */
+    .stButton > button[kind="primary"] {
+        background-color: #2563EB;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
+    /* 입력창 */
+    [data-testid="stFileUploader"],
+    [data-testid="stAudioInput"] {
+        border-radius: 12px;
+    }
+
+    /* 채팅 메시지 */
+    [data-testid="stChatMessage"] {
+        border: 1px solid #E5EAF1;
+        border-radius: 14px;
+        padding: 12px;
+        background-color: #FFFFFF;
+    }
+
+    /* 구분선 */
+    hr {
+        border-color: #E5EAF1;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 상단 타이틀
+st.title("🤖 에이블 | AI Personal Assistant")
+st.caption("김대리 전용 스마트 업무비서")
+st.markdown("업무를 더 빠르고 정확하게. 에이블이 함께합니다.")
+
+st.divider()
+
+# 주요 기능 소개
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.info("🎙️ 음성 인식\n\n음성 명령을 텍스트로 변환")
+
+with col2:
+    st.info("✉️ 이메일 관리\n\nAI 기반 이메일 작성 및 발송")
+
+with col3:
+    st.info("💬 대화 기억\n\n최근 10개 대화 관리")
+
+st.divider()
+
 st.write("음성으로 질문하시면 답변해 드립니다.")
 
 # 역할 지정
 sys_role = """
-당신은 다양한 업무를 처리하는 AI 서비스입니다.
-개인 비서처럼 친절하게 응대합니다.
+당신은 '김대리'의 전용 AI 개인비서 '에이블'입니다.
+
+당신의 주요 역할은 다음과 같습니다.
+1. 김대리의 업무 지원 및 일정 관리
+2. 회의록 분석과 핵심 내용 요약
+3. 업무 지시사항 및 To-Do List 추출
+4. 사용자 질문에 대한 정확하고 친절한 답변
+5. 이메일 작성 및 외부 도구를 활용한 발송
+6. 음성 명령 이해 및 음성 응답 제공
+
+업무 수행 원칙:
+- 사용자를 '김대리님'이라고 부릅니다.
+- 이전 대화 내용을 참고하여 연속적인 대화를 수행합니다.
+- 답변은 간결하고 명확하게 작성합니다.
+- 확인되지 않은 정보는 임의로 만들어내지 않습니다.
+- 이메일은 사용자의 최종 확인을 받은 후 발송합니다.
 """
+
+# GPT가 사용할 외부 도구 정의
+tools = [{
+    "type": "function",
+    "name": "send_email",
+    "description": "사용자의 요청에 따라 이메일을 작성하고 발송합니다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "to": {"type": "string"},
+            "subject": {"type": "string"},
+            "body": {"type": "string"}
+        },
+        "required": ["to", "subject", "body"],
+        "additionalProperties": False
+    },
+    "strict": True
+}]
 
 # 상태 초기화
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# 사이드바 구성
+with st.sidebar:
+
+    st.title("🤖 ABLE")
+    st.caption("Personal AI Assistant")
+
+    st.divider()
+
+    st.markdown("### 👤 사용자 정보")
+    st.write("**사용자:** 김대리")
+    st.write("**AI 비서:** 에이블")
+
+    st.divider()
+
+    st.markdown("### 🛠️ 주요 기능")
+    st.write("🎙️ 음성 명령 인식")
+    st.write("🧠 AI 업무 지원")
+    st.write("✉️ 이메일 작성 및 발송")
+    st.write("🔊 음성 답변")
+    st.write("💬 대화 히스토리")
+
+    st.divider()
+
+    st.markdown("### 📊 대화 현황")
+
+    message_count = len(st.session_state.messages)
+    st.metric("저장된 대화", f"{message_count // 2} / 10")
+
+    st.caption("최근 10개 대화까지 유지됩니다.")
+
+    st.divider()
+
+    st.caption("ABLE AI Assistant · Powered by OpenAI")
+
 # 지시 영역
 with st.form("task_form"):
     uploaded_file = st.file_uploader("텍스트 파일 업로드", type=["txt"])
     audio_value = st.audio_input("무엇을 도와드릴까요?")
-    submit = st.form_submit_button("실행")
+    submit = st.form_submit_button(
+    "🚀 에이블에게 요청하기",
+    type="primary",
+    use_container_width=True
+)
 
 # 버튼을 눌렀을 때만 실행
 if submit:
@@ -49,9 +247,55 @@ if submit:
     transcript = client.audio.transcriptions.create(
         model="whisper-1",
         file=("audio.wav", audio_value, "audio/wav"))
+    
+    # STT 음성 인식 결과 출력
+    st.subheader("🎤 음성 인식 결과")
+    st.info(transcript.text)
+    
+    # 이전 대화 기록 불러오기
+    input_messages.extend(st.session_state.messages)
 
     # 사용자 메시지
     input_messages.append({"role": "user", "content": transcript.text})
+
+    # 이메일 발송 요청 처리
+    if "email_pending" not in st.session_state:
+        st.session_state.email_pending = None
+
+    response_email = client.responses.create(
+        model="gpt-4o-mini",
+        input=input_messages,
+        tools=tools,
+        tool_choice="auto"
+    )
+
+    tool_calls = [
+        item for item in response_email.output
+        if item.type == "function_call"
+        and item.name == "send_email"
+    ]
+
+    if tool_calls:
+        args = json.loads(tool_calls[0].arguments)
+
+        st.session_state.email_pending = args
+
+        st.subheader("이메일 발송 확인")
+        st.write("수신자:", args["to"])
+        st.write("제목:", args["subject"])
+        st.write("본문:", args["body"])
+
+        st.session_state.messages.append({
+            "role": "user",
+            "content": transcript.text
+        })
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "이메일 발송 확인이 필요합니다."
+        })
+
+        st.stop()
 
     # LLM 호출 및 응답 듣기
     with st.spinner("답변을 준비하고 있습니다..."):
@@ -65,3 +309,77 @@ if submit:
         # 응답 출력
         st.subheader("AI 답변")
         st.write(answer)
+        
+        # GPT 최종 답변을 음성으로 변환
+        speech = client.audio.speech.create(
+           model="tts-1",
+           voice="alloy",
+           input=answer
+        )
+
+        # 음성 데이터를 가져오기
+        audio_bytes = speech.content
+
+        # Streamlit에서 음성 자동 재생
+        st.audio(
+            audio_bytes,
+            format="audio/mp3",
+            autoplay=True
+        )
+
+        # 사용자 질문 저장
+        st.session_state.messages.append({
+            "role": "user",
+            "content": transcript.text
+        })
+
+        # AI 답변 저장
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        # 최근 10개 대화만 유지
+        st.session_state.messages = st.session_state.messages[-20:]
+
+# 이메일 발송 최종 확인
+if st.session_state.get("email_pending"):
+
+    email = st.session_state.email_pending
+
+    st.subheader("이메일 최종 확인")
+    st.write("받는 사람:", email["to"])
+    st.write("제목:", email["subject"])
+    st.write("내용:", email["body"])
+
+    if st.button("이메일 발송"):
+        result = send_email(**email)
+
+        if result["status"] == "success":
+            st.success("이메일이 발송되었습니다.")
+            st.session_state.email_pending = None
+        else:
+            st.error(result["error"])
+
+    if st.button("발송 취소"):
+        st.session_state.email_pending = None
+        st.rerun()
+
+# 대화 히스토리 표시
+st.divider()
+st.subheader("💬 최근 대화 히스토리")
+
+for msg in st.session_state.messages[-20:]:
+
+    if msg["role"] == "user":
+        with st.chat_message("user"):
+            st.write(msg["content"])
+
+    elif msg["role"] == "assistant":
+        with st.chat_message("assistant"):
+            st.write(msg["content"])
+
+# 대화 히스토리 초기화
+if st.button("🗑️ 대화 기록 초기화"):
+    st.session_state.messages = []
+    st.rerun()
