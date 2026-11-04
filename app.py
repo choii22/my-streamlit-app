@@ -355,25 +355,32 @@ if submit:
     ]
 
     if tool_calls:
+
+        # GPT가 생성한 이메일 정보 가져오기
         args = json.loads(tool_calls[0].arguments)
 
-    # 현재 음성 요청도 검사 대상에 포함
-    user_messages = st.session_state.messages + [
-        {"role": "user", "content": transcript.text}
-    ]
+        # 현재 음성 요청도 검사 대상에 포함
+        user_messages = st.session_state.messages + [
+            {"role": "user", "content": transcript.text}
+        ]
 
-    if not check_email_address(args.get("to"), user_messages):
-        st.session_state.messages.append({
-            "role": "user",
-            "content": transcript.text
-        })
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "김대리님, 발송할 이메일 주소를 알려주세요."
-        })
-        st.session_state.email_pending = None
-        st.rerun()
+        # 이메일 주소 검사
+        if not check_email_address(args.get("to"), user_messages):
 
+            st.session_state.messages.append({
+                "role": "user",
+                "content": transcript.text
+            })
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "김대리님, 발송할 이메일 주소를 알려주세요."
+            })
+
+            st.session_state.email_pending = None
+            st.rerun()
+
+        # 이메일 주소가 확인된 경우에만 초안 저장
         st.session_state.email_pending = args
 
         st.subheader("이메일 발송 확인")
