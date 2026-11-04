@@ -53,6 +53,52 @@ def check_email_address(email, messages):
         a.lower() for a in email_list
     ]
 
+# 음성 답변 생성 함수
+def speak_answer(answer):
+    speech = client.audio.speech.create(
+        model="tts-1",
+        voice="alloy",
+        input=answer
+    )
+
+    st.audio(
+        speech.content,
+        format="audio/mp3",
+        autoplay=True
+    )
+
+
+# 음성 요청에서 답변 방식 판단
+def get_response_mode(text):
+    text = re.sub(r"\s+", "", text)
+
+    chat_keywords = [
+        "채팅으로답변",
+        "채팅으로대답",
+        "텍스트로답변",
+        "텍스트로대답",
+        "글로답변",
+        "글로대답",
+        "음성말고채팅",
+        "말하지말고채팅"
+    ]
+
+    voice_keywords = [
+        "음성으로답변",
+        "음성으로대답",
+        "말로답변",
+        "말로대답",
+        "소리내서답변"
+    ]
+
+    if any(keyword in text for keyword in chat_keywords):
+        return "chat"
+
+    if any(keyword in text for keyword in voice_keywords):
+        return "voice"
+
+    return None
+
 # 이메일 발송 함수
 def send_email(to, subject, body):
     sender = st.secrets["GMAIL_ADDRESS"]
@@ -246,6 +292,12 @@ if "meeting_text" not in st.session_state:
 if "email_pending" not in st.session_state:
     st.session_state.email_pending = None
 
+if "response_mode" not in st.session_state:
+    st.session_state.response_mode = "voice"
+
+if "pending_speech" not in st.session_state:
+    st.session_state.pending_speech = None
+
 # 사이드바 구성
 with st.sidebar:
 
@@ -289,7 +341,17 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.email_pending = None
         st.session_state.meeting_text = ""
+        st.session_state.response_mode = "voice"
+        st.session_state.pending_speech = None
         st.rerun()
+
+# 앱 재실행 후 음성 답변
+if st.session_state.pending_speech is not None:
+
+    answer_to_speak = st.session_state.pending_speech
+    st.session_state.pending_speech = None
+
+    speak_answer(answer_to_speak)
     
 # 지시 영역
 with st.form("task_form"):
@@ -331,6 +393,12 @@ if submit:
     st.subheader("🎤 음성 인식 결과")
     st.info(transcript.text)
     
+    # 음성 요청에 포함된 답변 방식 확인
+    requested_mode = get_response_mode(transcript.text)
+
+    if requested_mode is not None:
+        st.session_state.response_mode = requested_mode
+
     # 이전 대화 기록 불러오기
     input_messages.extend(st.session_state.messages)
 
@@ -356,29 +424,45 @@ if submit:
 
     if tool_calls:
 
-        # GPT가 생성한 이메일 정보 가져오기
         args = json.loads(tool_calls[0].arguments)
 
-        # 현재 음성 요청도 검사 대상에 포함
         user_messages = st.session_state.messages + [
             {"role": "user", "content": transcript.text}
         ]
 
-        # 이메일 주소 검사
+        # 이메일 주소가 없는 경우
         if not check_email_address(args.get("to"), user_messages):
 
-            st.session_state.messages.append({
-                "role": "user",
-                "content": transcript.text
-            })
-
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": "김대리님, 발송할 이메일 주소를 알려주세요."
-            })
-
+            answer = "김대리님, 발송할 이메일 주소를 알려주세요."
             st.session_state.email_pending = None
-            st.rerun()
+
+        # 이메일 주소가 확인된 경우
+        else:
+
+            st.session_state.email_pending = args
+            answer = (
+                "김대리님, 이메일 초안이 준비되었습니다. "
+                "내용을 확인한 후 발송 버튼을 눌러주세요."
+            )
+
+        # 대화 기록 저장
+        st.session_state.messages.append({
+            "role": "user",
+            "content": transcript.text
+        })
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        st.session_state.messages = st.session_state.messages[-20:]
+
+        # 음성 답변 모드일 때만 TTS 실행
+        if st.session_state.response_mode == "voice":
+            speak_answer(answer)
+
+        st.rerun()
 
         # 이메일 주소가 확인된 경우에만 초안 저장
         st.session_state.email_pending = args
@@ -483,9 +567,15 @@ if st.session_state.email_pending is not None:
 
             if result["status"] == "success":
                 st.session_state.email_pending = None
-                st.success("이메일이 발송되었습니다.")
+                answer = "김대리님, 이메일이 정상적으로 발송되었습니다."
+                st.success(answer)
+
             else:
+                answer = "김대리님, 이메일 발송에 실패했습니다."
                 st.error(result["error"])
+
+            if st.session_state.response_mode == "voice":
+                speak_answer(answer)
 
     with col2:
         if st.button(
