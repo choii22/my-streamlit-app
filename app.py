@@ -103,6 +103,29 @@ st.markdown("""
         border-radius: 12px;
     }
 
+    /* 음성 녹음 버튼 크기 및 디자인 */
+[data-testid="stAudioInput"] button {
+    min-width: 64px !important;
+    min-height: 64px !important;
+    border-radius: 16px !important;
+    border: 2px solid #2563EB !important;
+    background-color: #EFF6FF !important;
+    color: #1D4ED8 !important;
+    cursor: pointer !important;
+}
+
+/* 녹음 버튼 내부 아이콘 */
+[data-testid="stAudioInput"] button svg {
+    width: 30px !important;
+    height: 30px !important;
+}
+
+/* 마우스를 올렸을 때 */
+[data-testid="stAudioInput"] button:hover {
+    background-color: #DBEAFE !important;
+    border-color: #1D4ED8 !important;
+}
+
     /* 채팅 메시지 */
     [data-testid="stChatMessage"] {
         border: 1px solid #E5EAF1;
@@ -235,43 +258,6 @@ with st.sidebar:
         st.session_state.meeting_text = ""
         st.rerun()
     
-
-# 이메일 발송 최종 확인
-if st.session_state.email_pending is not None:
-
-    email = st.session_state.email_pending
-
-    st.subheader("✉️ 이메일 최종 확인")
-
-    st.write("**받는 사람:**", email["to"])
-    st.write("**제목:**", email["subject"])
-    st.write("**내용:**")
-    st.info(email["body"])
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button(
-            "📨 최종 발송하기",
-            type="primary",
-            use_container_width=True
-        ):
-            result = send_email(**email)
-
-            if result["status"] == "success":
-                st.session_state.email_pending = None
-                st.success("이메일이 발송되었습니다.")
-            else:
-                st.error(result["error"])
-
-    with col2:
-        if st.button(
-            "발송 취소",
-            use_container_width=True
-        ):
-            st.session_state.email_pending = None
-            st.rerun()
-
 # 지시 영역
 with st.form("task_form"):
     uploaded_file = st.file_uploader("텍스트 파일 업로드", type=["txt"])
@@ -416,13 +402,43 @@ for msg in st.session_state.messages[-20:]:
         with st.chat_message("assistant"):
             st.write(msg["content"])
 
-# 대화 히스토리 초기화
-#if st.button("🗑️ 대화 기록 초기화"):
- #   st.session_state.messages = []
-  #  st.rerun()
+# 이메일 발송 최종 확인
+if st.session_state.email_pending is not None:
+
+    email = st.session_state.email_pending
+
+    st.subheader("✉️ 이메일 최종 확인")
+
+    st.write("**받는 사람:**", email["to"])
+    st.write("**제목:**", email["subject"])
+    st.write("**내용:**")
+    st.info(email["body"])
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "📨 최종 발송하기",
+            type="primary",
+            use_container_width=True
+        ):
+            result = send_email(**email)
+
+            if result["status"] == "success":
+                st.session_state.email_pending = None
+                st.success("이메일이 발송되었습니다.")
+            else:
+                st.error(result["error"])
+
+    with col2:
+        if st.button(
+            "발송 취소",
+            use_container_width=True
+        ):
+            st.session_state.email_pending = None
+            st.rerun()
 
 # AIVLE 텍스트 채팅 기능
-
 st.divider()
 
 # 텍스트 입력창
