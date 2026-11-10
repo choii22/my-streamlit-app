@@ -1,81 +1,82 @@
 
-import time, base64, mimetypes
 import streamlit as st
-
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import HumanMessage, AIMessage
+from operator import itemgetter
 
-# 이미지 변환 함수
-@st.cache_resource
-def bytes_to_data_url(file_bytes: bytes, filename: str) -> str:
-    mime, _ = mimetypes.guess_type(filename)
-    if mime is None:
-        mime = "image/jpeg"
-    b64 = base64.b64encode(file_bytes).decode("utf-8")
-    return f"data:{mime};base64,{b64}"
+# 문서 포맷팅 함수
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
 
-# 체인 생성 캐싱
+# 체인 캐싱
 @st.cache_resource
 def get_chain():
-    s_msg = "당신은 이미지 내용을 정확히 묘사하고 요약하는 전문가입니다."
-    h_msg = [
-        {"type": "text", "text": "{question}"},
-        {"type": "image_url", "image_url": {"url": "{image_url}"}},
-    ]
-    messages = [("system", s_msg), ("human", h_msg)]
-    prompt = ChatPromptTemplate.from_messages(messages)
-    llm = ChatOpenAI(model="gpt-4o-mini")
-    return prompt | llm
+    # Embedding 모델
+    embedding = OpenAIEmbeddings(model="text-embedding-3-small")
 
-# Streamlit UI
-st.set_page_config(page_title="🖼️ 이미지 분석")
-st.title("🖼️ 이미지 업로드 분석기")
-
-# 사이드바 설정
-with st.sidebar:
-    st.header("설정")
-    user_prompt = st.text_area(
-        "분석 요청 사항",
-        value="이미지를 3문장으로 설명하고, 마지막에 한 줄 캡션을 써주세요.",
-        height=150
+    # 벡터 저장소
+    vectorstore = Chroma(
+        collection_name="hr_rules",
+        embedding_function=embedding,
+        persist_directory="chroma_db"
     )
 
-# 이미지 업로드
-uploaded = st.file_uploader("이미지 선택", type=["jpg", "jpeg", "png"])
+    # 검색기 구성
+    retriever = vectorstore.as_retriever()
 
-if uploaded:
-    img_bytes = uploaded.read()
-    # 이미지 표시
-    st.image(img_bytes, caption="분석 대상 이미지", width=600)
+    # 체인 구성
+    s_msg = """
+    1. 반드시 제공된 문서 내용(context)에 근거하여 답변하세요.
+    2. 문서에 없는 내용은 추측하지 말고 "업로드된 문서에서 확인되지 않습니다."라고 답하세요.
+    3. 답변은 간결하고 명확하게 작성하세요.
+    [문서]
+    {context}"""
+    h_msg = "{input}"
+    messages = [("system", s_msg), ("human", h_msg)]
+    prompt = ChatPromptTemplate.from_messages(messages)
+    llm = ChatOpenAI(model="gpt-4o-mini", streaming=True, temperature=0)
+    rag_chain = (
+        {
+            "context": itemgetter("input") | retriever | format_docs,
+            "input": itemgetter("input")
+        }
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+    return rag_chain
 
-    if st.button("이미지 분석 시작", type="primary"):
-        if not user_prompt.strip():
-            st.warning("요청 사항을 입력해주세요.")
-            st.stop()
+# RAG 체인 준비
+chain = get_chain()
 
-        # 이미지 경로
-        data_url = bytes_to_data_url(img_bytes, uploaded.name)
+# 페이지 설정
+st.set_page_config(page_title="RAG 챗봇", page_icon="🏢")
+st.title("🏢 인사규정 챗봇")
 
-        # 체인 구성
-        chain = get_chain()
+# 세션 상태 초기화
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-        # 체인 실행
-        with st.spinner(f"🔍이미지를 분석하는 중..."):
-            response = chain.invoke(
-                {
-                    "question": user_prompt.strip(),
-                    "image_url": data_url,
-                }
-            )
+# 기존 대화 내용 출력
+for message in st.session_state.messages:
+    role = "user" if isinstance(message, HumanMessage) else "assistant"
+    with st.chat_message(role):
+        st.markdown(message.content)
 
-        # 결과 출력
-        with st.chat_message("assistant"):
-            response_container = st.empty()
-            full_response = ""
-            for char in response.content:
-                full_response += char
-                response_container.markdown(full_response + "▌")
-                time.sleep(0.01)
-            response_container.markdown(full_response)
-else:
-    st.info("이미지를 업로드해 주세요.")
+# 사용자 입력 처리
+user_input = st.chat_input("메시지를 입력하세요.")
+if user_input:
+    # 사용자 메시지 표시
+    st.chat_message("user").markdown(user_input)
+
+    # 응답 출력
+    with st.chat_message("assistant"):
+        response_stream = chain.stream({"input": user_input})
+        full_response = st.write_stream(response_stream)
+
+    # 대화 기록 저장
+    st.session_state.messages.append(HumanMessage(content=user_input))
+    st.session_state.messages.append(AIMessage(content=full_response))
